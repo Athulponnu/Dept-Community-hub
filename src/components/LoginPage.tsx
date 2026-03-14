@@ -3,7 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, BookOpen } from "lucide-react";
+import { GraduationCap, BookOpen, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface LoginPageProps {
   onLogin: (role: "student" | "teacher") => void;
@@ -13,10 +14,55 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
   const [selectedRole, setSelectedRole] = useState<"student" | "teacher" | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedRole) onLogin(selectedRole);
+    if (!selectedRole) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // 1. Sign in with Supabase Auth
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        setError("Invalid email or password. Please try again.");
+        return;
+      }
+
+      // 2. Fetch role from profiles table
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", data.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        setError("Could not fetch user role. Contact admin.");
+        return;
+      }
+
+      // 3. Check if selected role matches actual role in DB
+      if (profile.role !== selectedRole) {
+        setError(`This account is not registered as a ${selectedRole}.`);
+        await supabase.auth.signOut();
+        return;
+      }
+
+      // 4. All good — pass role up to App.tsx
+      onLogin(profile.role as "student" | "teacher");
+
+    } catch (err) {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -37,7 +83,7 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
         {/* Role Selection */}
         <div className="grid grid-cols-2 gap-3 mb-6">
           <button
-            onClick={() => setSelectedRole("student")}
+            onClick={() => { setSelectedRole("student"); setError(null); }}
             className={`flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all ${
               selectedRole === "student"
                 ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
@@ -47,8 +93,9 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
             <BookOpen className={`w-7 h-7 ${selectedRole === "student" ? "text-primary" : "text-muted-foreground"}`} />
             <span className={`font-semibold text-sm ${selectedRole === "student" ? "text-primary" : "text-foreground"}`}>Student</span>
           </button>
+
           <button
-            onClick={() => setSelectedRole("teacher")}
+            onClick={() => { setSelectedRole("teacher"); setError(null); }}
             className={`flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all ${
               selectedRole === "teacher"
                 ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
@@ -78,6 +125,7 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
                     placeholder={`${selectedRole}@dept.edu`}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -88,10 +136,23 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    required
                   />
                 </div>
-                <Button type="submit" className="w-full font-semibold">
-                  Sign In
+
+                {/* Error message */}
+                {error && (
+                  <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
+                    {error}
+                  </p>
+                )}
+
+                <Button type="submit" className="w-full font-semibold" disabled={loading}>
+                  {loading ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Signing in...</>
+                  ) : (
+                    "Sign In"
+                  )}
                 </Button>
               </form>
             </CardContent>
