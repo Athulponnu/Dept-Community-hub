@@ -14,33 +14,31 @@ import {
   Trash2, BarChart3, Github, Linkedin, Code2, RefreshCw, Settings, Check
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import DevGroupPage from "@/components/DevGroupPage";
 
 interface Note {
   id: string; title: string; content: string; date: string;
   note_type?: string; file_url?: string | null; file_name?: string | null;
 }
 interface Subject { id: string; name: string; icon: string; notes: Note[]; }
-interface DevGroup { id: string; name: string; description: string; members: number; max_members: number; tags: string[]; }
+interface DevGroup {
+  id: string; name: string; description: string;
+  members: number; max_members: number; tags: string[];
+}
 interface MyTeacher { id: string; name: string; email: string; avatar: string; department: string; }
 interface Task { id: string; title: string; description: string | null; due_date: string | null; completed: boolean; teacher_id: string; }
 interface Certification { id: string; title: string; issuer: string | null; date: string | null; url: string | null; }
-
 interface ProgressData {
-  github_username: string | null;
-  wakatime_api_key: string | null;
-  linkedin_post_count: number;
-  github_contributions: number | null;
-  wakatime_seconds: number | null;
-  login_count: number;
+  github_username: string | null; wakatime_api_key: string | null;
+  linkedin_post_count: number; github_contributions: number | null;
+  wakatime_seconds: number | null; login_count: number;
 }
-
-interface StudentDashboardProps {
-  onLogout: () => void;
-}
+interface StudentDashboardProps { onLogout: () => void; }
 
 const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<DevGroup | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [devGroups, setDevGroups] = useState<DevGroup[]>([]);
   const [joinedGroups, setJoinedGroups] = useState<string[]>([]);
@@ -48,10 +46,11 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [studentName, setStudentName] = useState("Student");
+  const [studentAvatar, setStudentAvatar] = useState("ST");
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Progress state
+  // Progress
   const [progressData, setProgressData] = useState<ProgressData>({
     github_username: null, wakatime_api_key: null, linkedin_post_count: 0,
     github_contributions: null, wakatime_seconds: null, login_count: 0,
@@ -60,7 +59,7 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
   const [showProgressSettings, setShowProgressSettings] = useState(false);
   const [editGithub, setEditGithub] = useState("");
   const [editWakatime, setEditWakatime] = useState("");
-  const [editLinkedin, setEditLinkedin] = useState("");
+  const [editLinkedin, setEditLinkedin] = useState("0");
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
@@ -97,10 +96,11 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
       setUserId(user.id);
 
       const { data: student } = await supabase.from("students")
-        .select("name, github_username, wakatime_api_key, linkedin_post_count")
+        .select("name, avatar, github_username, wakatime_api_key, linkedin_post_count")
         .eq("id", user.id).single();
       if (student) {
         setStudentName(student.name);
+        setStudentAvatar(student.avatar);
         setProgressData(prev => ({
           ...prev,
           github_username: student.github_username,
@@ -112,7 +112,6 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
         setEditLinkedin(String(student.linkedin_post_count ?? 0));
       }
 
-      // Subjects
       const { data: joinedSubjects } = await supabase.from("student_subjects").select("subject_id").eq("student_id", user.id);
       const joinedSubjectIds = joinedSubjects?.map((s) => s.subject_id) ?? [];
       if (joinedSubjectIds.length > 0) {
@@ -139,15 +138,11 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
       const { data: certsData } = await supabase.from("certifications").select("*").eq("student_id", user.id).order("date", { ascending: false });
       if (certsData) setCertifications(certsData);
 
-      // Login count
       const { count } = await supabase.from("login_events").select("*", { count: "exact", head: true }).eq("student_id", user.id);
       setProgressData(prev => ({ ...prev, login_count: count ?? 0 }));
 
-    } catch (err) {
-      console.error("Error fetching data:", err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error("Error fetching data:", err); }
+    finally { setLoading(false); }
   };
 
   const fetchProgressMetrics = async () => {
@@ -155,61 +150,30 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-
-      const { data: student } = await supabase.from("students")
-        .select("github_username, wakatime_api_key, linkedin_post_count")
-        .eq("id", user.id).single();
-
+      const { data: student } = await supabase.from("students").select("github_username, wakatime_api_key, linkedin_post_count").eq("id", user.id).single();
       if (!student) return;
-
       let github_contributions: number | null = null;
       let wakatime_seconds: number | null = null;
-
-      // GitHub contributions (last 30 days via public API)
       if (student.github_username) {
         try {
-          const response = await fetch(
-            `https://api.github.com/users/${student.github_username}/events/public?per_page=100`
-          );
-          if (response.ok) {
-            const events = await response.json();
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-            github_contributions = events.filter((e: any) =>
-              e.type === "PushEvent" && new Date(e.created_at) > thirtyDaysAgo
-            ).reduce((sum: number, e: any) => sum + (e.payload?.commits?.length ?? 1), 0);
+          const res = await fetch(`https://api.github.com/users/${student.github_username}/events/public?per_page=100`);
+          if (res.ok) {
+            const events = await res.json();
+            const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+            github_contributions = events.filter((e: any) => e.type === "PushEvent" && new Date(e.created_at) > cutoff)
+              .reduce((sum: number, e: any) => sum + (e.payload?.commits?.length ?? 1), 0);
           }
-        } catch (e) { console.error("GitHub fetch failed", e); }
+        } catch (e) { }
       }
-
-      // WakaTime coding time (last 7 days)
       if (student.wakatime_api_key) {
         try {
           const encoded = btoa(student.wakatime_api_key);
-          const response = await fetch(
-            `https://wakatime.com/api/v1/users/current/stats/last_7_days`,
-            { headers: { Authorization: `Basic ${encoded}` } }
-          );
-          if (response.ok) {
-            const data = await response.json();
-            wakatime_seconds = data.data?.total_seconds ?? null;
-          }
-        } catch (e) { console.error("WakaTime fetch failed", e); }
+          const res = await fetch(`https://wakatime.com/api/v1/users/current/stats/last_7_days`, { headers: { Authorization: `Basic ${encoded}` } });
+          if (res.ok) { const data = await res.json(); wakatime_seconds = data.data?.total_seconds ?? null; }
+        } catch (e) { }
       }
-
-      setProgressData(prev => ({
-        ...prev,
-        github_username: student.github_username,
-        wakatime_api_key: student.wakatime_api_key,
-        linkedin_post_count: student.linkedin_post_count ?? 0,
-        github_contributions,
-        wakatime_seconds,
-      }));
-    } catch (err) {
-      console.error("Error fetching metrics:", err);
-    } finally {
-      setProgressLoading(false);
-    }
+      setProgressData(prev => ({ ...prev, github_contributions, wakatime_seconds, linkedin_post_count: student.linkedin_post_count ?? 0 }));
+    } catch (err) { } finally { setProgressLoading(false); }
   };
 
   const handleSaveProgressSettings = async () => {
@@ -221,43 +185,25 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
         wakatime_api_key: editWakatime.trim() || null,
         linkedin_post_count: parseInt(editLinkedin) || 0,
       }).eq("id", userId);
-      setProgressData(prev => ({
-        ...prev,
-        github_username: editGithub.trim() || null,
-        wakatime_api_key: editWakatime.trim() || null,
-        linkedin_post_count: parseInt(editLinkedin) || 0,
-      }));
-      setSettingsSaved(true);
-      setShowProgressSettings(false);
+      setProgressData(prev => ({ ...prev, github_username: editGithub.trim() || null, wakatime_api_key: editWakatime.trim() || null, linkedin_post_count: parseInt(editLinkedin) || 0 }));
+      setSettingsSaved(true); setShowProgressSettings(false);
       setTimeout(() => setSettingsSaved(false), 2000);
       await fetchProgressMetrics();
-    } catch (err) {
-      console.error("Save failed", err);
-    } finally {
-      setSavingSettings(false);
-    }
+    } catch (err) { } finally { setSavingSettings(false); }
   };
 
-  // Score calculation (0-100)
   const calcProgressScore = () => {
     let score = 0;
-    // GitHub: up to 30 pts (1 pt per commit, max 30)
     score += Math.min(30, progressData.github_contributions ?? 0);
-    // Login frequency: up to 20 pts (2 pts per login, max 20)
     score += Math.min(20, (progressData.login_count ?? 0) * 2);
-    // LinkedIn: up to 20 pts (4 pts per post, max 20)
     score += Math.min(20, (progressData.linkedin_post_count ?? 0) * 4);
-    // WakaTime: up to 30 pts (1 pt per hour, max 30)
-    const hours = Math.floor((progressData.wakatime_seconds ?? 0) / 3600);
-    score += Math.min(30, hours);
+    score += Math.min(30, Math.floor((progressData.wakatime_seconds ?? 0) / 3600));
     return Math.min(100, score);
   };
 
   const formatWakatime = (seconds: number | null) => {
     if (seconds === null) return "—";
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    return `${h}h ${m}m`;
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   };
 
   const handleToggleTask = async (taskId: string, current: boolean) => {
@@ -313,14 +259,15 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
     } catch (err) { setBudError("Something went wrong. Try again."); } finally { setJoiningBud(false); }
   };
 
-  const toggleGroup = async (groupId: string) => {
+  const toggleGroup = async (groupId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!userId) return;
     const isJoined = joinedGroups.includes(groupId);
     if (isJoined) {
       await supabase.from("student_groups").delete().eq("student_id", userId).eq("group_id", groupId);
-      await supabase.from("dev_groups").update({ members: (devGroups.find(g => g.id === groupId)?.members ?? 1) - 1 }).eq("id", groupId);
+      await supabase.from("dev_groups").update({ members: Math.max(0, (devGroups.find(g => g.id === groupId)?.members ?? 1) - 1) }).eq("id", groupId);
       setJoinedGroups((prev) => prev.filter((id) => id !== groupId));
-      setDevGroups((prev) => prev.map(g => g.id === groupId ? { ...g, members: g.members - 1 } : g));
+      setDevGroups((prev) => prev.map(g => g.id === groupId ? { ...g, members: Math.max(0, g.members - 1) } : g));
     } else {
       await supabase.from("student_groups").insert({ student_id: userId, group_id: groupId });
       await supabase.from("dev_groups").update({ members: (devGroups.find(g => g.id === groupId)?.members ?? 0) + 1 }).eq("id", groupId);
@@ -333,18 +280,32 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
   const completedTasks = tasks.filter((t) => t.completed).length;
   const overallScore = calcProgressScore();
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  // ── DEV GROUP PAGE VIEW ──
+  if (selectedGroup && userId) {
+    return (
+      <DevGroupPage
+        group={selectedGroup}
+        userId={userId}
+        studentName={studentName}
+        studentAvatar={studentAvatar}
+        onBack={() => setSelectedGroup(null)}
+      />
+    );
   }
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+
+  const GROUP_ICONS: Record<string, string> = {
+    "dg1": "🤖", "dg2": "💻", "dg3": "☁️", "dg4": "🔒",
+    "dg5": "📊", "dg6": "🎮", "dg7": "🌟",
+  };
 
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b bg-card/80 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-              <BookOpen className="w-5 h-5 text-primary-foreground" />
-            </div>
+            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center"><BookOpen className="w-5 h-5 text-primary-foreground" /></div>
             <div>
               <h1 className="text-lg font-bold leading-tight">Student Portal</h1>
               <p className="text-xs text-muted-foreground">Welcome back, {studentName}!</p>
@@ -462,8 +423,6 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
           {/* ── PROGRESS TAB ── */}
           <TabsContent value="progress">
             <div className="space-y-5">
-
-              {/* Overall Score Card */}
               <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-accent/5">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between flex-wrap gap-4">
@@ -471,45 +430,28 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
                       <h3 className="font-bold text-xl mb-1">Overall Activity Score</h3>
                       <p className="text-sm text-muted-foreground">Based on GitHub, logins, LinkedIn & VS Code activity</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-center">
-                        <p className="text-5xl font-bold text-primary">{overallScore}</p>
-                        <p className="text-xs text-muted-foreground mt-1">/ 100</p>
-                      </div>
-                    </div>
+                    <div className="text-center"><p className="text-5xl font-bold text-primary">{overallScore}</p><p className="text-xs text-muted-foreground mt-1">/ 100</p></div>
                   </div>
                   <div className="mt-4">
                     <Progress value={overallScore} className="h-3" />
-                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                      <span>Beginner</span>
-                      <span>Intermediate</span>
-                      <span>Expert</span>
-                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground mt-1"><span>Beginner</span><span>Intermediate</span><span>Expert</span></div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Action Buttons */}
               <div className="flex items-center gap-2 flex-wrap">
                 <Button onClick={fetchProgressMetrics} disabled={progressLoading} variant="outline" className="gap-2">
-                  {progressLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  Refresh Metrics
+                  {progressLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh Metrics
                 </Button>
                 <Button onClick={() => setShowProgressSettings(!showProgressSettings)} variant="outline" className="gap-2">
                   <Settings className="w-4 h-4" /> {showProgressSettings ? "Hide Settings" : "Connect Accounts"}
                 </Button>
-                {settingsSaved && (
-                  <span className="text-sm text-accent flex items-center gap-1"><Check className="w-4 h-4" /> Saved!</span>
-                )}
+                {settingsSaved && <span className="text-sm text-accent flex items-center gap-1"><Check className="w-4 h-4" /> Saved!</span>}
               </div>
 
-              {/* Settings Panel */}
               {showProgressSettings && (
                 <Card className="border-primary/30 animate-in fade-in duration-200">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Connect Your Accounts</CardTitle>
-                    <CardDescription>Link your accounts to automatically track your activity</CardDescription>
-                  </CardHeader>
+                  <CardHeader className="pb-3"><CardTitle className="text-base">Connect Your Accounts</CardTitle><CardDescription>Link your accounts to automatically track your activity</CardDescription></CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <Label className="flex items-center gap-2"><Github className="w-4 h-4" /> GitHub Username</Label>
@@ -519,16 +461,11 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
                     <div className="space-y-2">
                       <Label className="flex items-center gap-2"><Code2 className="w-4 h-4" /> WakaTime API Key</Label>
                       <Input placeholder="waka_..." value={editWakatime} onChange={(e) => setEditWakatime(e.target.value)} type="password" />
-                      <p className="text-xs text-muted-foreground">
-                        Get your key at{" "}
-                        <a href="https://wakatime.com/settings/api-key" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">wakatime.com/settings/api-key</a>
-                        {" "}→ Install the VS Code extension to start tracking
-                      </p>
+                      <p className="text-xs text-muted-foreground">Get your key at <a href="https://wakatime.com/settings/api-key" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">wakatime.com/settings/api-key</a></p>
                     </div>
                     <div className="space-y-2">
                       <Label className="flex items-center gap-2"><Linkedin className="w-4 h-4" /> LinkedIn Posts This Month</Label>
                       <Input type="number" min="0" placeholder="0" value={editLinkedin} onChange={(e) => setEditLinkedin(e.target.value)} className="max-w-[120px]" />
-                      <p className="text-xs text-muted-foreground">Manually enter your LinkedIn post count this month</p>
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" onClick={handleSaveProgressSettings} disabled={savingSettings}>
@@ -540,50 +477,31 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
                 </Card>
               )}
 
-              {/* Metric Cards */}
               <div className="grid sm:grid-cols-2 gap-4">
-
-                {/* GitHub */}
-                <Card className={progressData.github_username ? "border-border" : "border-dashed"}>
+                <Card className={progressData.github_username ? "" : "border-dashed"}>
                   <CardContent className="p-5">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                        <Github className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold">GitHub Contributions</h3>
-                        <p className="text-xs text-muted-foreground">Last 30 days • commits</p>
-                      </div>
+                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center"><Github className="w-5 h-5" /></div>
+                      <div><h3 className="font-bold">GitHub Contributions</h3><p className="text-xs text-muted-foreground">Last 30 days</p></div>
                     </div>
                     {progressData.github_username ? (
                       <>
-                        <p className="text-4xl font-bold text-primary mb-1">
-                          {progressLoading ? <Loader2 className="w-6 h-6 animate-spin inline" /> : (progressData.github_contributions ?? "—")}
-                        </p>
+                        <p className="text-4xl font-bold text-primary mb-1">{progressLoading ? <Loader2 className="w-6 h-6 animate-spin inline" /> : (progressData.github_contributions ?? "—")}</p>
                         <p className="text-xs text-muted-foreground mb-3">@{progressData.github_username}</p>
                         <Progress value={Math.min(100, ((progressData.github_contributions ?? 0) / 30) * 100)} className="h-2" />
                         <p className="text-xs text-muted-foreground mt-1">{Math.min(30, progressData.github_contributions ?? 0)} / 30 pts</p>
                       </>
                     ) : (
-                      <div className="text-center py-3">
-                        <p className="text-sm text-muted-foreground mb-2">GitHub not connected</p>
-                        <Button size="sm" variant="outline" onClick={() => setShowProgressSettings(true)} className="gap-1.5"><Settings className="w-3.5 h-3.5" /> Connect</Button>
-                      </div>
+                      <div className="text-center py-3"><p className="text-sm text-muted-foreground mb-2">GitHub not connected</p><Button size="sm" variant="outline" onClick={() => setShowProgressSettings(true)} className="gap-1.5"><Settings className="w-3.5 h-3.5" /> Connect</Button></div>
                     )}
                   </CardContent>
                 </Card>
 
-                {/* Login Frequency */}
                 <Card>
                   <CardContent className="p-5">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                        <BarChart3 className="w-5 h-5 text-accent" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold">Login Frequency</h3>
-                        <p className="text-xs text-muted-foreground">Total portal logins</p>
-                      </div>
+                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center"><BarChart3 className="w-5 h-5 text-accent" /></div>
+                      <div><h3 className="font-bold">Login Frequency</h3><p className="text-xs text-muted-foreground">Total portal logins</p></div>
                     </div>
                     <p className="text-4xl font-bold text-accent mb-1">{progressData.login_count}</p>
                     <p className="text-xs text-muted-foreground mb-3">times logged in</p>
@@ -592,17 +510,11 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
                   </CardContent>
                 </Card>
 
-                {/* LinkedIn */}
-                <Card className={progressData.linkedin_post_count > 0 ? "border-border" : "border-dashed"}>
+                <Card className={progressData.linkedin_post_count > 0 ? "" : "border-dashed"}>
                   <CardContent className="p-5">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                        <Linkedin className="w-5 h-5 text-blue-500" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold">LinkedIn Posts</h3>
-                        <p className="text-xs text-muted-foreground">This month • manual entry</p>
-                      </div>
+                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center"><Linkedin className="w-5 h-5 text-blue-500" /></div>
+                      <div><h3 className="font-bold">LinkedIn Posts</h3><p className="text-xs text-muted-foreground">This month</p></div>
                     </div>
                     {progressData.linkedin_post_count > 0 ? (
                       <>
@@ -612,51 +524,33 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
                         <p className="text-xs text-muted-foreground mt-1">{Math.min(20, progressData.linkedin_post_count * 4)} / 20 pts</p>
                       </>
                     ) : (
-                      <div className="text-center py-3">
-                        <p className="text-sm text-muted-foreground mb-2">No posts recorded</p>
-                        <Button size="sm" variant="outline" onClick={() => setShowProgressSettings(true)} className="gap-1.5"><Settings className="w-3.5 h-3.5" /> Update Count</Button>
-                      </div>
+                      <div className="text-center py-3"><p className="text-sm text-muted-foreground mb-2">No posts recorded</p><Button size="sm" variant="outline" onClick={() => setShowProgressSettings(true)} className="gap-1.5"><Settings className="w-3.5 h-3.5" /> Update</Button></div>
                     )}
                   </CardContent>
                 </Card>
 
-                {/* WakaTime */}
-                <Card className={progressData.wakatime_api_key ? "border-border" : "border-dashed"}>
+                <Card className={progressData.wakatime_api_key ? "" : "border-dashed"}>
                   <CardContent className="p-5">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                        <Code2 className="w-5 h-5 text-orange-500" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold">VS Code Time</h3>
-                        <p className="text-xs text-muted-foreground">Last 7 days • via WakaTime</p>
-                      </div>
+                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center"><Code2 className="w-5 h-5 text-orange-500" /></div>
+                      <div><h3 className="font-bold">VS Code Time</h3><p className="text-xs text-muted-foreground">Last 7 days via WakaTime</p></div>
                     </div>
                     {progressData.wakatime_api_key ? (
                       <>
-                        <p className="text-4xl font-bold text-orange-500 mb-1">
-                          {progressLoading ? <Loader2 className="w-6 h-6 animate-spin inline" /> : formatWakatime(progressData.wakatime_seconds)}
-                        </p>
+                        <p className="text-4xl font-bold text-orange-500 mb-1">{progressLoading ? <Loader2 className="w-6 h-6 animate-spin inline" /> : formatWakatime(progressData.wakatime_seconds)}</p>
                         <p className="text-xs text-muted-foreground mb-3">coding this week</p>
                         <Progress value={Math.min(100, (Math.floor((progressData.wakatime_seconds ?? 0) / 3600) / 30) * 100)} className="h-2" />
                         <p className="text-xs text-muted-foreground mt-1">{Math.min(30, Math.floor((progressData.wakatime_seconds ?? 0) / 3600))} / 30 pts</p>
                       </>
                     ) : (
-                      <div className="text-center py-3">
-                        <p className="text-sm text-muted-foreground mb-1">WakaTime not connected</p>
-                        <p className="text-xs text-muted-foreground mb-2">Install the VS Code extension first</p>
-                        <Button size="sm" variant="outline" onClick={() => setShowProgressSettings(true)} className="gap-1.5"><Settings className="w-3.5 h-3.5" /> Connect</Button>
-                      </div>
+                      <div className="text-center py-3"><p className="text-sm text-muted-foreground mb-1">WakaTime not connected</p><Button size="sm" variant="outline" onClick={() => setShowProgressSettings(true)} className="gap-1.5"><Settings className="w-3.5 h-3.5" /> Connect</Button></div>
                     )}
                   </CardContent>
                 </Card>
               </div>
 
-              {/* Scoring breakdown */}
               <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold text-muted-foreground">Scoring Breakdown</CardTitle>
-                </CardHeader>
+                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold text-muted-foreground">Scoring Breakdown</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
                   {[
                     { label: "GitHub commits (last 30d)", value: Math.min(30, progressData.github_contributions ?? 0), max: 30, color: "bg-primary" },
@@ -816,32 +710,48 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
 
           {/* ── DEV GROUPS TAB ── */}
           <TabsContent value="devgroups">
-            <div className="grid sm:grid-cols-2 gap-4 animate-in fade-in duration-200">
-              {devGroups.map((group) => {
-                const isJoined = joinedGroups.includes(group.id);
-                return (
-                  <Card key={group.id} className={`transition-all ${isJoined ? "border-primary/40 shadow-md shadow-primary/5" : ""}`}>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle className="text-base">{group.name}</CardTitle>
-                          <CardDescription className="mt-1">{group.description}</CardDescription>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">Join a group then click <span className="font-medium text-foreground">Enter Group →</span> to access chat, projects and news.</p>
+              <div className="grid sm:grid-cols-2 gap-4 animate-in fade-in duration-200">
+                {devGroups.map((group) => {
+                  const isJoined = joinedGroups.includes(group.id);
+                  const icon = GROUP_ICONS[group.id] ?? "💡";
+                  return (
+                    <Card key={group.id} className={`transition-all ${isJoined ? "border-primary/40 shadow-md shadow-primary/5" : "hover:border-primary/20"}`}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            <span className="text-3xl mt-0.5">{icon}</span>
+                            <div>
+                              <CardTitle className="text-base">{group.name}</CardTitle>
+                              <CardDescription className="mt-1">{group.description}</CardDescription>
+                            </div>
+                          </div>
+                          {isJoined && <Badge className="bg-accent text-accent-foreground text-xs shrink-0">Joined</Badge>}
                         </div>
-                        {isJoined && <Badge className="bg-accent text-accent-foreground text-xs">Joined</Badge>}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        {group.tags.map((tag) => <Badge key={tag} variant="secondary" className="text-xs font-normal">{tag}</Badge>)}
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">{group.members}/{group.max_members} members</span>
-                        <Button size="sm" variant={isJoined ? "outline" : "default"} onClick={() => toggleGroup(group.id)}>{isJoined ? "Leave" : "Join"}</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="flex flex-wrap gap-1.5">
+                          {group.tags.map((tag) => <Badge key={tag} variant="secondary" className="text-xs font-normal">{tag}</Badge>)}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {group.members} members</span>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant={isJoined ? "outline" : "default"} onClick={(e) => toggleGroup(group.id, e)}>
+                              {isJoined ? "Leave" : "Join"}
+                            </Button>
+                            {isJoined && (
+                              <Button size="sm" onClick={() => setSelectedGroup(group)} className="gap-1.5">
+                                Enter Group →
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
             </div>
           </TabsContent>
         </Tabs>

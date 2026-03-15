@@ -8,81 +8,43 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { GraduationCap, LogOut, BarChart3, Users, Award, TrendingUp, Loader2, Plus, Copy, Check, BookOpen, Trash2, ArrowLeft, FileText, Upload, File, Calendar, Heart, ClipboardList, CheckCircle2, Circle, ExternalLink } from "lucide-react";
+import {
+  GraduationCap, LogOut, BarChart3, Users, Award, TrendingUp, Loader2, Plus, Copy,
+  Check, BookOpen, Trash2, ArrowLeft, FileText, Upload, File, Calendar, Heart,
+  ClipboardList, CheckCircle2, Circle, ExternalLink
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface Student {
-  id: string;
-  name: string;
-  email: string;
-  avatar: string;
-  contributions: number;
-  progress: Record<string, number>;
-  joinedGroups: string[];
+  id: string; name: string; email: string; avatar: string;
+  contributions: number; progress: Record<string, number>; joinedGroups: string[];
 }
-
 interface Bud {
-  id: string;
-  name: string;
-  email: string;
-  avatar: string;
-  contributions: number;
+  id: string; name: string; email: string; avatar: string; contributions: number;
 }
-
 interface BudProfile extends Bud {
-  certifications: Certification[];
-  enrolledSubjects: { id: string; name: string; icon: string }[];
-  tasks: Task[];
-  progress: Record<string, number>;
+  certifications: Certification[]; enrolledSubjects: { id: string; name: string; icon: string }[];
+  tasks: Task[]; progress: Record<string, number>;
 }
-
 interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  due_date: string | null;
-  completed: boolean;
-  student_id: string;
-  teacher_id: string;
+  id: string; title: string; description: string | null;
+  due_date: string | null; completed: boolean; student_id: string; teacher_id: string;
 }
-
 interface Certification {
-  id: string;
-  title: string;
-  issuer: string | null;
-  date: string | null;
-  url: string | null;
+  id: string; title: string; issuer: string | null; date: string | null; url: string | null;
 }
-
 interface Subject {
-  id: string;
-  name: string;
-  icon: string;
-  join_code: string;
-  teacher_id: string;
+  id: string; name: string; icon: string; join_code: string; teacher_id: string;
 }
-
 interface Note {
-  id: string;
-  title: string;
-  content: string;
-  date: string;
-  note_type: string;
-  file_url: string | null;
-  file_name: string | null;
-  subject_id: string;
+  id: string; title: string; content: string; date: string; note_type: string;
+  file_url: string | null; file_name: string | null; subject_id: string;
 }
-
-interface DevGroup {
-  id: string;
-  name: string;
-}
-
-interface TeacherDashboardProps {
-  onLogout: () => void;
-}
+interface DevGroup { id: string; name: string; }
+interface TeacherDashboardProps { onLogout: () => void; }
 
 const ICONS = ["🧩", "⚙️", "🗄️", "🌐", "💻", "📐", "🔬", "📊", "🧠", "🎯"];
 
@@ -120,13 +82,23 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
   const [addingNote, setAddingNote] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
 
-  // Assign task
+  // Individual task (inside bud profile)
   const [showAssignTask, setShowAssignTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDescription, setTaskDescription] = useState("");
   const [taskDueDate, setTaskDueDate] = useState("");
   const [assigningTask, setAssigningTask] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
+
+  // Bulk task assignment
+  const [showBulkTask, setShowBulkTask] = useState(false);
+  const [bulkTaskTitle, setBulkTaskTitle] = useState("");
+  const [bulkTaskDescription, setBulkTaskDescription] = useState("");
+  const [bulkTaskDueDate, setBulkTaskDueDate] = useState("");
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [bulkTaskError, setBulkTaskError] = useState<string | null>(null);
+  const [bulkTaskSuccess, setBulkTaskSuccess] = useState<string | null>(null);
+  const [selectedBudIds, setSelectedBudIds] = useState<string[]>([]);
 
   useEffect(() => { fetchData(); }, []);
   useEffect(() => { if (selectedSubject) fetchNotes(selectedSubject.id); }, [selectedSubject]);
@@ -172,23 +144,15 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
         const budIds = budsData.map((b) => b.student_id);
         const { data: budStudents } = await supabase.from("students").select("id, name, email, avatar, contributions").in("id", budIds);
         if (budStudents) setBuds(budStudents);
-      } else {
-        setBuds([]);
-      }
-    } catch (err) {
-      console.error("Error fetching data:", err);
-    } finally {
-      setLoading(false);
-    }
+      } else { setBuds([]); }
+    } catch (err) { console.error("Error fetching data:", err); }
+    finally { setLoading(false); }
   };
 
   const fetchBudProfile = async (bud: Bud) => {
     setBudProfileLoading(true);
     try {
-      // Certifications
       const { data: certs } = await supabase.from("certifications").select("*").eq("student_id", bud.id).order("date", { ascending: false });
-
-      // Enrolled subjects
       const { data: enrolledLinks } = await supabase.from("student_subjects").select("subject_id").eq("student_id", bud.id);
       const subjectIds = enrolledLinks?.map((e) => e.subject_id) ?? [];
       let enrolledSubjects: { id: string; name: string; icon: string }[] = [];
@@ -196,27 +160,13 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
         const { data: subjData } = await supabase.from("subjects").select("id, name, icon").in("id", subjectIds);
         if (subjData) enrolledSubjects = subjData;
       }
-
-      // Tasks assigned to this bud by this teacher
       const { data: tasksData } = await supabase.from("tasks").select("*").eq("student_id", bud.id).eq("teacher_id", teacherId).order("created_at", { ascending: false });
-
-      // Progress
       const { data: progressData } = await supabase.from("student_progress").select("subject_id, percentage").eq("student_id", bud.id);
       const progress: Record<string, number> = {};
       progressData?.forEach((p) => { progress[p.subject_id] = p.percentage; });
-
-      setSelectedBud({
-        ...bud,
-        certifications: certs ?? [],
-        enrolledSubjects,
-        tasks: tasksData ?? [],
-        progress,
-      });
-    } catch (err) {
-      console.error("Error fetching bud profile:", err);
-    } finally {
-      setBudProfileLoading(false);
-    }
+      setSelectedBud({ ...bud, certifications: certs ?? [], enrolledSubjects, tasks: tasksData ?? [], progress });
+    } catch (err) { console.error("Error fetching bud profile:", err); }
+    finally { setBudProfileLoading(false); }
   };
 
   const fetchNotes = async (subjectId: string) => {
@@ -238,27 +188,50 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
     setAssigningTask(true); setTaskError(null);
     try {
       const { error } = await supabase.from("tasks").insert({
-        id: `task_${Date.now()}`,
-        teacher_id: teacherId,
-        student_id: selectedBud.id,
-        title: taskTitle.trim(),
-        description: taskDescription.trim() || null,
-        due_date: taskDueDate || null,
-        completed: false,
+        id: `task_${Date.now()}`, teacher_id: teacherId, student_id: selectedBud.id,
+        title: taskTitle.trim(), description: taskDescription.trim() || null,
+        due_date: taskDueDate || null, completed: false,
       });
       if (error) { setTaskError("Failed to assign task."); return; }
       setTaskTitle(""); setTaskDescription(""); setTaskDueDate("");
       setShowAssignTask(false);
       await fetchBudProfile(selectedBud);
-    } catch (err) { setTaskError("Something went wrong."); } finally { setAssigningTask(false); }
+    } catch (err) { setTaskError("Something went wrong."); }
+    finally { setAssigningTask(false); }
   };
+
+  const handleBulkAssignTask = async () => {
+    if (!bulkTaskTitle.trim() || !teacherId || selectedBudIds.length === 0) return;
+    setBulkAssigning(true); setBulkTaskError(null); setBulkTaskSuccess(null);
+    try {
+      const inserts = selectedBudIds.map((studentId) => ({
+        id: `task_${Date.now()}_${studentId}`,
+        teacher_id: teacherId,
+        student_id: studentId,
+        title: bulkTaskTitle.trim(),
+        description: bulkTaskDescription.trim() || null,
+        due_date: bulkTaskDueDate || null,
+        completed: false,
+      }));
+      const { error } = await supabase.from("tasks").insert(inserts);
+      if (error) { setBulkTaskError("Failed to assign tasks."); return; }
+      setBulkTaskSuccess(`Task assigned to ${selectedBudIds.length} student${selectedBudIds.length > 1 ? "s" : ""}! ✅`);
+      setBulkTaskTitle(""); setBulkTaskDescription(""); setBulkTaskDueDate("");
+      setSelectedBudIds([]); setShowBulkTask(false);
+    } catch (err) { setBulkTaskError("Something went wrong."); }
+    finally { setBulkAssigning(false); }
+  };
+
+  const toggleBudSelection = (budId: string) => {
+    setSelectedBudIds((prev) => prev.includes(budId) ? prev.filter((id) => id !== budId) : [...prev, budId]);
+  };
+  const selectAllBuds = () => setSelectedBudIds(buds.map((b) => b.id));
+  const clearSelection = () => setSelectedBudIds([]);
 
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm("Delete this task?")) return;
     await supabase.from("tasks").delete().eq("id", taskId);
-    if (selectedBud) {
-      setSelectedBud((prev) => prev ? { ...prev, tasks: prev.tasks.filter((t) => t.id !== taskId) } : null);
-    }
+    if (selectedBud) setSelectedBud((prev) => prev ? { ...prev, tasks: prev.tasks.filter((t) => t.id !== taskId) } : null);
   };
 
   const handleCreateSubject = async () => {
@@ -272,9 +245,9 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
       const { error } = await supabase.from("subjects").insert({ id, name: newSubjectName.trim(), icon: newSubjectIcon, join_code: code, teacher_id: teacherId });
       if (error) { setCreateError("Failed to create subject."); return; }
       setNewSubjectName(""); setNewSubjectIcon("📚"); setNewSubjectCode("");
-      setShowCreateSubject(false);
-      await fetchData();
-    } catch (err) { setCreateError("Something went wrong."); } finally { setCreating(false); }
+      setShowCreateSubject(false); await fetchData();
+    } catch (err) { setCreateError("Something went wrong."); }
+    finally { setCreating(false); }
   };
 
   const handleDeleteSubject = async (subjectId: string) => {
@@ -306,9 +279,9 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
       });
       if (error) { setNoteError("Failed to add note."); return; }
       setNoteTitle(""); setNoteContent(""); setNoteFile(null);
-      setShowAddNote(false);
-      await fetchNotes(selectedSubject.id);
-    } catch (err) { setNoteError("Something went wrong."); } finally { setAddingNote(false); }
+      setShowAddNote(false); await fetchNotes(selectedSubject.id);
+    } catch (err) { setNoteError("Something went wrong."); }
+    finally { setAddingNote(false); }
   };
 
   const handleDeleteNote = async (noteId: string, fileUrl: string | null) => {
@@ -348,9 +321,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
 
   const handleLogout = async () => { await supabase.auth.signOut(); onLogout(); };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   // ── SUBJECT DETAIL VIEW ──
   if (selectedSubject) {
@@ -359,9 +330,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
         <header className="sticky top-0 z-30 border-b bg-card/80 backdrop-blur-md">
           <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={() => setSelectedSubject(null)} className="text-muted-foreground">
-                <ArrowLeft className="w-4 h-4 mr-1" /> Back
-              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedSubject(null)} className="text-muted-foreground"><ArrowLeft className="w-4 h-4 mr-1" /> Back</Button>
               <div className="text-lg font-bold">{selectedSubject.icon} {selectedSubject.name}</div>
             </div>
             <div className="flex items-center gap-2">
@@ -387,10 +356,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                   <Button size="sm" variant={noteType === "text" ? "default" : "outline"} onClick={() => setNoteType("text")} className="gap-1.5"><FileText className="w-3.5 h-3.5" /> Text Note</Button>
                   <Button size="sm" variant={noteType === "file" ? "default" : "outline"} onClick={() => setNoteType("file")} className="gap-1.5"><Upload className="w-3.5 h-3.5" /> File Upload</Button>
                 </div>
-                <div className="space-y-2">
-                  <Label>Title</Label>
-                  <Input placeholder="Note title" value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} />
-                </div>
+                <div className="space-y-2"><Label>Title</Label><Input placeholder="Note title" value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} /></div>
                 {noteType === "text" ? (
                   <div className="space-y-2"><Label>Content</Label><Textarea placeholder="Write your note content here..." value={noteContent} onChange={(e) => setNoteContent(e.target.value)} rows={5} /></div>
                 ) : (
@@ -457,26 +423,18 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
       <div className="min-h-screen bg-background">
         <header className="sticky top-0 z-30 border-b bg-card/80 backdrop-blur-md">
           <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={() => setSelectedBud(null)} className="text-muted-foreground">
-                <ArrowLeft className="w-4 h-4 mr-1" /> Back to My Buds
-              </Button>
-            </div>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedBud(null)} className="text-muted-foreground"><ArrowLeft className="w-4 h-4 mr-1" /> Back to My Buds</Button>
             <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground"><LogOut className="w-4 h-4 mr-1" /> Logout</Button>
           </div>
         </header>
-
         {budProfileLoading ? (
           <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
         ) : (
           <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-            {/* Profile Header */}
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center gap-4">
-                  <Avatar className="w-16 h-16">
-                    <AvatarFallback className="bg-primary/10 text-primary font-bold text-2xl">{selectedBud.avatar}</AvatarFallback>
-                  </Avatar>
+                  <Avatar className="w-16 h-16"><AvatarFallback className="bg-primary/10 text-primary font-bold text-2xl">{selectedBud.avatar}</AvatarFallback></Avatar>
                   <div className="flex-1">
                     <h2 className="text-2xl font-bold">{selectedBud.name}</h2>
                     <p className="text-muted-foreground">{selectedBud.email}</p>
@@ -486,15 +444,11 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                       <Badge variant="secondary">{selectedBud.certifications.length} certifications</Badge>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => handleRemoveBud(selectedBud.id)}>
-                    Remove Bud
-                  </Button>
+                  <Button variant="outline" size="sm" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => handleRemoveBud(selectedBud.id)}>Remove Bud</Button>
                 </div>
               </CardContent>
             </Card>
-
             <div className="grid lg:grid-cols-2 gap-6">
-              {/* TASKS */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-lg flex items-center gap-2"><ClipboardList className="w-5 h-5 text-primary" /> Tasks</h3>
@@ -503,22 +457,12 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                     <Button size="sm" onClick={() => setShowAssignTask(true)} className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Assign</Button>
                   </div>
                 </div>
-
                 {showAssignTask && (
                   <Card className="border-primary/30">
                     <CardContent className="p-4 space-y-3">
-                      <div className="space-y-2">
-                        <Label>Task Title</Label>
-                        <Input placeholder="e.g. Complete DSA assignment" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Description <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                        <Textarea placeholder="Task details..." value={taskDescription} onChange={(e) => setTaskDescription(e.target.value)} rows={2} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Due Date <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                        <Input type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
-                      </div>
+                      <div className="space-y-2"><Label>Task Title</Label><Input placeholder="e.g. Complete DSA assignment" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} /></div>
+                      <div className="space-y-2"><Label>Description <span className="text-muted-foreground font-normal">(optional)</span></Label><Textarea placeholder="Task details..." value={taskDescription} onChange={(e) => setTaskDescription(e.target.value)} rows={2} /></div>
+                      <div className="space-y-2"><Label>Due Date <span className="text-muted-foreground font-normal">(optional)</span></Label><Input type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} /></div>
                       {taskError && <p className="text-sm text-destructive">{taskError}</p>}
                       <div className="flex gap-2">
                         <Button size="sm" onClick={handleAssignTask} disabled={assigningTask || !taskTitle.trim()}>
@@ -529,55 +473,31 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                     </CardContent>
                   </Card>
                 )}
-
                 {selectedBud.tasks.length === 0 ? (
-                  <Card className="border-dashed">
-                    <CardContent className="p-8 text-center">
-                      <ClipboardList className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">No tasks assigned yet.</p>
-                    </CardContent>
-                  </Card>
+                  <Card className="border-dashed"><CardContent className="p-8 text-center"><ClipboardList className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" /><p className="text-sm text-muted-foreground">No tasks assigned yet.</p></CardContent></Card>
                 ) : (
                   <div className="space-y-2">
                     {selectedBud.tasks.map((task) => (
                       <Card key={task.id} className={`transition-all ${task.completed ? "border-accent/30 bg-accent/5" : ""}`}>
                         <CardContent className="p-3 flex items-start gap-3">
-                          <div className="mt-0.5">
-                            {task.completed
-                              ? <CheckCircle2 className="w-5 h-5 text-accent" />
-                              : <Circle className="w-5 h-5 text-muted-foreground/40" />}
-                          </div>
+                          <div className="mt-0.5">{task.completed ? <CheckCircle2 className="w-5 h-5 text-accent" /> : <Circle className="w-5 h-5 text-muted-foreground/40" />}</div>
                           <div className="flex-1">
                             <p className={`font-medium text-sm ${task.completed ? "line-through text-muted-foreground" : ""}`}>{task.title}</p>
                             {task.description && <p className="text-xs text-muted-foreground mt-0.5">{task.description}</p>}
-                            {task.due_date && (
-                              <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                                <Calendar className="w-3 h-3" /> Due: {task.due_date}
-                              </p>
-                            )}
+                            {task.due_date && <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1"><Calendar className="w-3 h-3" /> Due: {task.due_date}</p>}
                           </div>
-                          <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 w-7 p-0" onClick={() => handleDeleteTask(task.id)}>
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                          <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 w-7 p-0" onClick={() => handleDeleteTask(task.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </CardContent>
                       </Card>
                     ))}
                   </div>
                 )}
               </div>
-
-              {/* RIGHT COLUMN */}
               <div className="space-y-6">
-                {/* CERTIFICATIONS */}
                 <div className="space-y-3">
                   <h3 className="font-bold text-lg flex items-center gap-2"><Award className="w-5 h-5 text-primary" /> Certifications</h3>
                   {selectedBud.certifications.length === 0 ? (
-                    <Card className="border-dashed">
-                      <CardContent className="p-8 text-center">
-                        <Award className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">No certifications added yet.</p>
-                      </CardContent>
-                    </Card>
+                    <Card className="border-dashed"><CardContent className="p-8 text-center"><Award className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" /><p className="text-sm text-muted-foreground">No certifications added yet.</p></CardContent></Card>
                   ) : (
                     <div className="space-y-2">
                       {selectedBud.certifications.map((cert) => (
@@ -589,11 +509,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                                 {cert.issuer && <p className="text-xs text-muted-foreground">{cert.issuer}</p>}
                                 {cert.date && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Calendar className="w-3 h-3" />{cert.date}</p>}
                               </div>
-                              {cert.url && (
-                                <a href={cert.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
-                                  <ExternalLink className="w-4 h-4" />
-                                </a>
-                              )}
+                              {cert.url && <a href={cert.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80"><ExternalLink className="w-4 h-4" /></a>}
                             </div>
                           </CardContent>
                         </Card>
@@ -601,31 +517,22 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                     </div>
                   )}
                 </div>
-
-                {/* ENROLLED SUBJECTS */}
                 <div className="space-y-3">
                   <h3 className="font-bold text-lg flex items-center gap-2"><BookOpen className="w-5 h-5 text-primary" /> Enrolled Subjects</h3>
                   {selectedBud.enrolledSubjects.length === 0 ? (
-                    <Card className="border-dashed">
-                      <CardContent className="p-8 text-center">
-                        <BookOpen className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">Not enrolled in any subjects yet.</p>
-                      </CardContent>
-                    </Card>
+                    <Card className="border-dashed"><CardContent className="p-8 text-center"><BookOpen className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" /><p className="text-sm text-muted-foreground">Not enrolled in any subjects yet.</p></CardContent></Card>
                   ) : (
                     <div className="space-y-2">
                       {selectedBud.enrolledSubjects.map((subj) => {
                         const val = selectedBud.progress[subj.id] || 0;
                         return (
-                          <Card key={subj.id}>
-                            <CardContent className="p-3">
-                              <div className="flex items-center justify-between mb-1.5">
-                                <p className="font-medium text-sm">{subj.icon} {subj.name}</p>
-                                <span className={`text-sm font-bold ${getProgressColor(val)}`}>{val}%</span>
-                              </div>
-                              <Progress value={val} className="h-1.5" />
-                            </CardContent>
-                          </Card>
+                          <Card key={subj.id}><CardContent className="p-3">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="font-medium text-sm">{subj.icon} {subj.name}</p>
+                              <span className={`text-sm font-bold ${getProgressColor(val)}`}>{val}%</span>
+                            </div>
+                            <Progress value={val} className="h-1.5" />
+                          </CardContent></Card>
                         );
                       })}
                     </div>
@@ -645,9 +552,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
       <header className="sticky top-0 z-30 border-b bg-card/80 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-              <GraduationCap className="w-5 h-5 text-primary-foreground" />
-            </div>
+            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center"><GraduationCap className="w-5 h-5 text-primary-foreground" /></div>
             <div>
               <h1 className="text-lg font-bold leading-tight">Teacher Portal</h1>
               <p className="text-xs text-muted-foreground">Welcome, {teacherName}</p>
@@ -667,13 +572,8 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
           ].map((stat) => (
             <Card key={stat.label}>
               <CardContent className="p-4 flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl bg-muted flex items-center justify-center ${stat.color}`}>
-                  <stat.icon className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.label}</p>
-                </div>
+                <div className={`w-10 h-10 rounded-xl bg-muted flex items-center justify-center ${stat.color}`}><stat.icon className="w-5 h-5" /></div>
+                <div><p className="text-2xl font-bold">{stat.value}</p><p className="text-xs text-muted-foreground">{stat.label}</p></div>
               </CardContent>
             </Card>
           ))}
@@ -688,9 +588,10 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
             <TabsTrigger value="contributions" className="gap-1.5"><Award className="w-4 h-4" /> Contributions</TabsTrigger>
           </TabsList>
 
-          {/* MY BUDS TAB */}
+          {/* ── MY BUDS TAB ── */}
           <TabsContent value="buds">
             <div className="space-y-4">
+              {/* Bud Code Card */}
               <Card className="border-primary/20 bg-primary/5">
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between flex-wrap gap-3">
@@ -700,9 +601,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                     </div>
                     {budCode ? (
                       <div className="flex items-center gap-3">
-                        <div className="bg-background rounded-xl px-5 py-3 border">
-                          <p className="font-mono font-bold text-2xl tracking-widest text-primary">{budCode}</p>
-                        </div>
+                        <div className="bg-background rounded-xl px-5 py-3 border"><p className="font-mono font-bold text-2xl tracking-widest text-primary">{budCode}</p></div>
                         <Button variant="outline" size="sm" onClick={() => copyCode(budCode)} className="gap-1.5">
                           {copiedCode === budCode ? <><Check className="w-3.5 h-3.5 text-accent" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
                         </Button>
@@ -715,24 +614,110 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                 </CardContent>
               </Card>
 
+              {buds.length > 0 && (
+                <>
+                  {/* Bulk Task Controls */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button onClick={() => { selectAllBuds(); setShowBulkTask(true); }} className="gap-2">
+                      <ClipboardList className="w-4 h-4" /> Assign Task to All Buds
+                    </Button>
+                    {selectedBudIds.length > 0 && selectedBudIds.length < buds.length && (
+                      <Button variant="outline" onClick={() => setShowBulkTask(true)} className="gap-2">
+                        <ClipboardList className="w-4 h-4" /> Assign to Selected ({selectedBudIds.length})
+                      </Button>
+                    )}
+                    {selectedBudIds.length > 0 && (
+                      <Button variant="ghost" size="sm" onClick={clearSelection} className="text-muted-foreground text-xs">Clear selection</Button>
+                    )}
+                  </div>
+
+                  {/* Bulk Task Success */}
+                  {bulkTaskSuccess && (
+                    <div className="text-sm text-accent bg-accent/10 px-3 py-2 rounded-lg">{bulkTaskSuccess}</div>
+                  )}
+
+                  {/* Bulk Task Form */}
+                  {showBulkTask && (
+                    <Card className="border-primary/30 animate-in fade-in duration-200">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <ClipboardList className="w-4 h-4" />
+                          Assign Task to {selectedBudIds.length === buds.length ? "All Buds" : `${selectedBudIds.length} Selected`}
+                        </CardTitle>
+                        <CardDescription>This task will be sent to {selectedBudIds.length} student{selectedBudIds.length > 1 ? "s" : ""}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Student selection checkboxes */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm">Select students</Label>
+                            <div className="flex gap-2">
+                              <button onClick={selectAllBuds} className="text-xs text-primary hover:underline">Select all</button>
+                              <span className="text-xs text-muted-foreground">·</span>
+                              <button onClick={clearSelection} className="text-xs text-muted-foreground hover:underline">Clear</button>
+                            </div>
+                          </div>
+                          <div className="grid sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto border rounded-lg p-3">
+                            {buds.map((bud) => (
+                              <div key={bud.id} className="flex items-center gap-2">
+                                <Checkbox
+                                  checked={selectedBudIds.includes(bud.id)}
+                                  onCheckedChange={() => toggleBudSelection(bud.id)}
+                                  id={`bud-${bud.id}`}
+                                />
+                                <label htmlFor={`bud-${bud.id}`} className="flex items-center gap-2 cursor-pointer">
+                                  <Avatar className="w-6 h-6"><AvatarFallback className="text-xs bg-primary/10 text-primary">{bud.avatar}</AvatarFallback></Avatar>
+                                  <span className="text-sm">{bud.name}</span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Task Title *</Label>
+                          <Input placeholder="e.g. Complete DSA assignment" value={bulkTaskTitle} onChange={(e) => setBulkTaskTitle(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Description <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                          <Textarea placeholder="Task details..." value={bulkTaskDescription} onChange={(e) => setBulkTaskDescription(e.target.value)} rows={3} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Due Date <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                          <Input type="date" value={bulkTaskDueDate} onChange={(e) => setBulkTaskDueDate(e.target.value)} className="max-w-[200px]" />
+                        </div>
+                        {bulkTaskError && <p className="text-sm text-destructive">{bulkTaskError}</p>}
+                        <div className="flex gap-2">
+                          <Button onClick={handleBulkAssignTask} disabled={bulkAssigning || !bulkTaskTitle.trim() || selectedBudIds.length === 0}>
+                            {bulkAssigning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ClipboardList className="w-4 h-4 mr-2" />}
+                            Assign to {selectedBudIds.length} Student{selectedBudIds.length > 1 ? "s" : ""}
+                          </Button>
+                          <Button variant="ghost" onClick={() => { setShowBulkTask(false); setBulkTaskError(null); setBulkTaskTitle(""); setBulkTaskDescription(""); setBulkTaskDueDate(""); }}>Cancel</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+
+              {/* Buds List */}
               {buds.length === 0 ? (
-                <Card className="border-dashed">
-                  <CardContent className="p-12 text-center">
-                    <Heart className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-                    <h3 className="font-semibold text-lg mb-1">No buds yet</h3>
-                    <p className="text-muted-foreground text-sm">Share your bud code with students to connect with them.</p>
-                  </CardContent>
-                </Card>
+                <Card className="border-dashed"><CardContent className="p-12 text-center"><Heart className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" /><h3 className="font-semibold text-lg mb-1">No buds yet</h3><p className="text-muted-foreground text-sm">Share your bud code with students to connect with them.</p></CardContent></Card>
               ) : (
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {buds.map((bud) => (
-                    <Card key={bud.id} className="group hover:border-primary/30 hover:shadow-md transition-all cursor-pointer" onClick={() => fetchBudProfile(bud)}>
+                    <Card key={bud.id} className={`group hover:border-primary/30 hover:shadow-md transition-all cursor-pointer ${selectedBudIds.includes(bud.id) ? "border-primary/50 bg-primary/5" : ""}`}>
                       <CardContent className="p-5">
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex items-center gap-3">
-                            <Avatar className="w-11 h-11">
-                              <AvatarFallback className="bg-primary/10 text-primary font-bold">{bud.avatar}</AvatarFallback>
-                            </Avatar>
+                            {/* Selection checkbox */}
+                            <Checkbox
+                              checked={selectedBudIds.includes(bud.id)}
+                              onCheckedChange={() => toggleBudSelection(bud.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="shrink-0"
+                            />
+                            <Avatar className="w-11 h-11"><AvatarFallback className="bg-primary/10 text-primary font-bold">{bud.avatar}</AvatarFallback></Avatar>
                             <div>
                               <h3 className="font-bold">{bud.name}</h3>
                               <p className="text-xs text-muted-foreground">{bud.email}</p>
@@ -744,11 +729,13 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mb-2">
                           <Badge variant="secondary" className="text-xs font-normal">{bud.contributions} contributions</Badge>
                           <Badge className="bg-primary/10 text-primary text-xs font-normal border-0">Bud ❤️</Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-2 text-center">Click to view profile →</p>
+                        <Button size="sm" variant="outline" className="w-full text-xs gap-1.5 mt-1" onClick={() => fetchBudProfile(bud)}>
+                          View Profile →
+                        </Button>
                       </CardContent>
                     </Card>
                   ))}
@@ -757,17 +744,14 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
             </div>
           </TabsContent>
 
-          {/* MY SUBJECTS TAB */}
+          {/* ── MY SUBJECTS TAB ── */}
           <TabsContent value="subjects">
             <div className="space-y-4">
               {!showCreateSubject ? (
                 <Button onClick={() => setShowCreateSubject(true)} className="gap-2"><Plus className="w-4 h-4" /> Create New Subject</Button>
               ) : (
                 <Card className="border-primary/30">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Create New Subject</CardTitle>
-                    <CardDescription>Students will use the join code to enroll</CardDescription>
-                  </CardHeader>
+                  <CardHeader className="pb-3"><CardTitle className="text-base">Create New Subject</CardTitle><CardDescription>Students will use the join code to enroll</CardDescription></CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-2"><Label>Subject Name</Label><Input placeholder="e.g. Data Structures" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} /></div>
                     <div className="space-y-2">
@@ -805,10 +789,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
                         </div>
                         <h3 className="font-bold text-lg mb-3">{subject.name}</h3>
                         <div className="flex items-center justify-between bg-muted/60 rounded-lg px-3 py-2">
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-0.5">Join Code</p>
-                            <p className="font-mono font-bold tracking-widest text-primary">{subject.join_code}</p>
-                          </div>
+                          <div><p className="text-xs text-muted-foreground mb-0.5">Join Code</p><p className="font-mono font-bold tracking-widest text-primary">{subject.join_code}</p></div>
                           <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); copyCode(subject.join_code); }} className="gap-1.5">
                             {copiedCode === subject.join_code ? <><Check className="w-3.5 h-3.5 text-accent" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
                           </Button>
@@ -822,7 +803,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
             </div>
           </TabsContent>
 
-          {/* PROGRESS TAB */}
+          {/* ── PROGRESS TAB ── */}
           <TabsContent value="progress">
             <Card>
               <CardHeader><CardTitle>Student Progress by Subject</CardTitle><CardDescription>Click a student row for details</CardDescription></CardHeader>
@@ -859,7 +840,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
             </Card>
           </TabsContent>
 
-          {/* STUDENTS TAB */}
+          {/* ── STUDENTS TAB ── */}
           <TabsContent value="students">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {students.map((student) => (
@@ -882,7 +863,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
             </div>
           </TabsContent>
 
-          {/* CONTRIBUTIONS TAB */}
+          {/* ── CONTRIBUTIONS TAB ── */}
           <TabsContent value="contributions">
             <Card>
               <CardHeader><CardTitle>Student Contributions</CardTitle><CardDescription>Ranked by total contributions across all groups</CardDescription></CardHeader>
@@ -903,6 +884,7 @@ const TeacherDashboard = ({ onLogout }: TeacherDashboardProps) => {
         </Tabs>
       </main>
 
+      {/* Student Detail Dialog */}
       <Dialog open={!!selectedStudent} onOpenChange={() => setSelectedStudent(null)}>
         <DialogContent className="max-w-lg">
           {selectedStudent && (
