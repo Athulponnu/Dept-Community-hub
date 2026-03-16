@@ -1,11 +1,54 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import LoginPage from "@/components/LoginPage";
 import StudentDashboard from "@/components/StudentDashboard";
 import TeacherDashboard from "@/components/TeacherDashboard";
 import { supabase } from "@/lib/supabase";
+import { Loader2 } from "lucide-react";
 
 const Index = () => {
   const [role, setRole] = useState<"student" | "teacher" | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    // Check existing session on mount
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", session.user.id)
+            .single();
+          if (profile?.role) setRole(profile.role as "student" | "teacher");
+        }
+      } catch (err) {
+        console.error("Session check failed:", err);
+      } finally {
+        setChecking(false);
+      }
+    };
+
+    checkSession();
+
+    // Listen for auth changes (login/logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_OUT" || !session) {
+        setRole(null);
+        return;
+      }
+      if (event === "SIGNED_IN" && session?.user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        if (profile?.role) setRole(profile.role as "student" | "teacher");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleLogin = async (userRole: "student" | "teacher") => {
     // Track login event for students
@@ -26,14 +69,22 @@ const Index = () => {
     setRole(userRole);
   };
 
-  if (!role) {
-    return <LoginPage onLogin={handleLogin} />;
+  // Show spinner while checking session
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center">
+            <Loader2 className="w-6 h-6 text-primary-foreground animate-spin" />
+          </div>
+          <p className="text-sm text-muted-foreground">Loading CHUB...</p>
+        </div>
+      </div>
+    );
   }
 
-  if (role === "student") {
-    return <StudentDashboard onLogout={() => setRole(null)} />;
-  }
-
+  if (!role) return <LoginPage onLogin={handleLogin} />;
+  if (role === "student") return <StudentDashboard onLogout={() => setRole(null)} />;
   return <TeacherDashboard onLogout={() => setRole(null)} />;
 };
 
