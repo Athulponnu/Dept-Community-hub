@@ -10,7 +10,9 @@ const Index = () => {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // Check existing session on mount
+    // Safety timeout — if session check takes >3s, show login
+    const timeout = setTimeout(() => setChecking(false), 3000);
+
     const checkSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -19,39 +21,27 @@ const Index = () => {
             .from("profiles")
             .select("role")
             .eq("id", session.user.id)
-            .single();
+            .maybeSingle();
           if (profile?.role) setRole(profile.role as "student" | "teacher");
         }
       } catch (err) {
         console.error("Session check failed:", err);
       } finally {
+        clearTimeout(timeout);
         setChecking(false);
       }
     };
 
     checkSession();
 
-    // Listen for auth changes (login/logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_OUT" || !session) {
-        setRole(null);
-        return;
-      }
-      if (event === "SIGNED_IN" && session?.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", session.user.id)
-          .single();
-        if (profile?.role) setRole(profile.role as "student" | "teacher");
-      }
+      if (event === "SIGNED_OUT" || !session) { setRole(null); return; }
     });
 
-    return () => subscription.unsubscribe();
+    return () => { subscription.unsubscribe(); clearTimeout(timeout); };
   }, []);
 
   const handleLogin = async (userRole: "student" | "teacher") => {
-    // Track login event for students
     if (userRole === "student") {
       try {
         const { data: { user } } = await supabase.auth.getUser();
@@ -69,7 +59,6 @@ const Index = () => {
     setRole(userRole);
   };
 
-  // Show spinner while checking session
   if (checking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
