@@ -149,26 +149,32 @@ const DevGroupPage = ({ group, userId, studentName, studentAvatar, onBack }: Dev
   const handleAddProject = async () => {
     if (!projTitle.trim()) return;
     setAddingProject(true); setProjectError(null);
+    const newProject: ProjectPost = {
+      id: `proj_${Date.now()}`,
+      group_id: group.id,
+      posted_by: userId,
+      posted_by_name: studentName,
+      posted_by_avatar: studentAvatar,
+      title: projTitle.trim(),
+      description: projDescription.trim() || null,
+      github_link: projGithub.trim() || null,
+      tech_tags: projTags.split(",").map(t => t.trim()).filter(Boolean),
+      team_size: parseInt(projTeamSize) || 3,
+      slots_available: parseInt(projSlots) || 0,
+      created_at: new Date().toISOString(),
+    };
     try {
-      const { error } = await supabase.from("project_posts").insert({
-        id: `proj_${Date.now()}`,
-        group_id: group.id,
-        posted_by: userId,
-        posted_by_name: studentName,
-        posted_by_avatar: studentAvatar,
-        title: projTitle.trim(),
-        description: projDescription.trim() || null,
-        github_link: projGithub.trim() || null,
-        tech_tags: projTags.split(",").map(t => t.trim()).filter(Boolean),
-        team_size: parseInt(projTeamSize) || 3,
-        slots_available: parseInt(projSlots) || 0,
-      });
-      if (error) { setProjectError("Failed to post project."); return; }
+      // ✅ Optimistic update — add to top of list immediately
+      setProjects((prev) => [newProject, ...prev]);
       setProjTitle(""); setProjDescription(""); setProjGithub(""); setProjTags(""); setProjTeamSize("3"); setProjSlots("2");
       setShowAddProject(false);
-      await fetchProjects();
-    } catch (err) { setProjectError("Something went wrong."); }
-    finally { setAddingProject(false); }
+      const { error } = await supabase.from("project_posts").insert(newProject);
+      // Revert if failed
+      if (error) { setProjects((prev) => prev.filter(p => p.id !== newProject.id)); setProjectError("Failed to post project."); setShowAddProject(true); }
+    } catch (err) {
+      setProjects((prev) => prev.filter(p => p.id !== newProject.id));
+      setProjectError("Something went wrong.");
+    } finally { setAddingProject(false); }
   };
 
   const handleRequestJoin = async (projectId: string) => {

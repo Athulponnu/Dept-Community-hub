@@ -207,22 +207,36 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
   };
 
   const handleToggleTask = async (taskId: string, current: boolean) => {
-    await supabase.from("tasks").update({ completed: !current }).eq("id", taskId);
+    // ✅ Optimistic update — flip checkbox immediately
     setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, completed: !current } : t));
+    const { error } = await supabase.from("tasks").update({ completed: !current }).eq("id", taskId);
+    // Revert if failed
+    if (error) setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, completed: current } : t));
   };
 
   const handleAddCertification = async () => {
     if (!certTitle.trim() || !userId) return;
     setAddingCert(true); setCertError(null);
+    const newCert = {
+      id: `cert_${Date.now()}`,
+      student_id: userId,
+      title: certTitle.trim(),
+      issuer: certIssuer.trim() || null,
+      date: certDate || null,
+      url: certUrl.trim() || null,
+    };
     try {
-      const { error } = await supabase.from("certifications").insert({
-        id: `cert_${Date.now()}`, student_id: userId, title: certTitle.trim(),
-        issuer: certIssuer.trim() || null, date: certDate || null, url: certUrl.trim() || null,
-      });
-      if (error) { setCertError("Failed to add certification."); return; }
+      // ✅ Optimistic update — add to list immediately
+      setCertifications((prev) => [newCert, ...prev]);
       setCertTitle(""); setCertIssuer(""); setCertDate(""); setCertUrl("");
-      setShowAddCert(false); await fetchData();
-    } catch (err) { setCertError("Something went wrong."); } finally { setAddingCert(false); }
+      setShowAddCert(false);
+      const { error } = await supabase.from("certifications").insert(newCert);
+      // Revert if failed
+      if (error) { setCertifications((prev) => prev.filter(c => c.id !== newCert.id)); setCertError("Failed to add certification."); }
+    } catch (err) {
+      setCertifications((prev) => prev.filter(c => c.id !== newCert.id));
+      setCertError("Something went wrong.");
+    } finally { setAddingCert(false); }
   };
 
   const handleDeleteCert = async (certId: string) => {
@@ -235,14 +249,20 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
     if (!joinCode.trim() || !userId) return;
     setJoining(true); setJoinError(null); setJoinSuccess(null);
     try {
-      const { data: subject, error } = await supabase.from("subjects").select("id, name").eq("join_code", joinCode.trim().toUpperCase()).single();
+      const { data: subject, error } = await supabase.from("subjects")
+        .select("id, name, icon")
+        .eq("join_code", joinCode.trim().toUpperCase()).single();
       if (error || !subject) { setJoinError("Invalid code. Please check and try again."); return; }
-      const { data: existing } = await supabase.from("student_subjects").select("subject_id").eq("student_id", userId).eq("subject_id", subject.id).maybeSingle();
+      const { data: existing } = await supabase.from("student_subjects")
+        .select("subject_id").eq("student_id", userId).eq("subject_id", subject.id).maybeSingle();
       if (existing) { setJoinError("You've already joined this subject."); return; }
       await supabase.from("student_subjects").insert({ student_id: userId, subject_id: subject.id });
+      // ✅ Optimistic update — add subject to local state immediately
+      setSubjects((prev) => [...prev, { ...subject, notes: [] }]);
       setJoinSuccess(`Successfully joined "${subject.name}"! 🎉`);
-      setJoinCode(""); setShowJoinInput(false); await fetchData();
-    } catch (err) { setJoinError("Something went wrong. Try again."); } finally { setJoining(false); }
+      setJoinCode(""); setShowJoinInput(false);
+    } catch (err) { setJoinError("Something went wrong. Try again."); }
+    finally { setJoining(false); }
   };
 
   const handleJoinTeacher = async () => {
@@ -263,16 +283,17 @@ const StudentDashboard = ({ onLogout }: StudentDashboardProps) => {
     e.stopPropagation();
     if (!userId) return;
     const isJoined = joinedGroups.includes(groupId);
+    // ✅ Optimistic update — update UI immediately
     if (isJoined) {
-      await supabase.from("student_groups").delete().eq("student_id", userId).eq("group_id", groupId);
-      await supabase.from("dev_groups").update({ members: Math.max(0, (devGroups.find(g => g.id === groupId)?.members ?? 1) - 1) }).eq("id", groupId);
       setJoinedGroups((prev) => prev.filter((id) => id !== groupId));
       setDevGroups((prev) => prev.map(g => g.id === groupId ? { ...g, members: Math.max(0, g.members - 1) } : g));
+      await supabase.from("student_groups").delete().eq("student_id", userId).eq("group_id", groupId);
+      await supabase.from("dev_groups").update({ members: Math.max(0, (devGroups.find(g => g.id === groupId)?.members ?? 1) - 1) }).eq("id", groupId);
     } else {
-      await supabase.from("student_groups").insert({ student_id: userId, group_id: groupId });
-      await supabase.from("dev_groups").update({ members: (devGroups.find(g => g.id === groupId)?.members ?? 0) + 1 }).eq("id", groupId);
       setJoinedGroups((prev) => [...prev, groupId]);
       setDevGroups((prev) => prev.map(g => g.id === groupId ? { ...g, members: g.members + 1 } : g));
+      await supabase.from("student_groups").insert({ student_id: userId, group_id: groupId });
+      await supabase.from("dev_groups").update({ members: (devGroups.find(g => g.id === groupId)?.members ?? 0) + 1 }).eq("id", groupId);
     }
   };
 
